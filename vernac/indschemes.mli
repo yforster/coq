@@ -36,7 +36,7 @@ val declare_rewriting_schemes : inductive -> unit
  *)
 
 val do_mutual_induction_scheme : ?force_mutual:bool ->
-  (lident * bool * inductive * Sorts.family) list -> unit
+  (lident * bool * bool * inductive * Sorts.family) list -> unit
 
 (** Main calls to interpret the Scheme command *)
 

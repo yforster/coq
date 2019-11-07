@@ -328,8 +328,8 @@ let rec split_scheme env l =
   | [] -> [],[]
   | (Some id,t)::q -> let l1,l2 = split_scheme env q in
     ( match t with
-      | InductionScheme (x,y,z) -> ((id,x,smart_global_inductive y,z)::l1),l2
-      | CaseScheme (x,y,z) -> ((id,x,smart_global_inductive y,z)::l1),l2
+      | InductionScheme (x,y,z) -> ((id,true,x,smart_global_inductive y,z)::l1),l2
+      | CaseScheme (x,y,z) -> ((id,false,x,smart_global_inductive y,z)::l1),l2
       | EqualityScheme  x -> l1,((Some id,smart_global_inductive x)::l2)
     )
 (*
@@ -338,7 +338,7 @@ requested
 *)
   | (None,t)::q ->
       let l1,l2 = split_scheme env q in
-      let names inds recs isdep y z =
+      let names isrec inds recs isdep y z =
         let ind = smart_global_inductive y in
         let sort_of_ind = inductive_sort_family (snd (lookup_mind_specif env ind)) in
         let suffix = (
@@ -368,19 +368,19 @@ requested
         ) in
         let newid = add_suffix (Nametab.basename_of_global (GlobRef.IndRef ind)) suffix in
         let newref = CAst.make newid in
-          ((newref,isdep,ind,z)::l1),l2
+          ((newref,isrec,isdep,ind,z)::l1),l2
       in
 	match t with
-	| CaseScheme (x,y,z) -> names "_case" "_case" x y z
-	| InductionScheme (x,y,z) -> names "_ind" "_rec" x y z
+        | CaseScheme (x,y,z) -> names false "_case" "_case" x y z
+        | InductionScheme (x,y,z) -> names true "_ind" "_rec" x y z
 	| EqualityScheme  x -> l1,((None,smart_global_inductive x)::l2)
 
 let do_mutual_induction_scheme ?(force_mutual=false) lnamedepindsort =
-  let lrecnames = List.map (fun ({CAst.v},_,_,_) -> v) lnamedepindsort
+  let lrecnames = List.map (fun ({CAst.v},_,_,_,_) -> v) lnamedepindsort
   and env0 = Global.env() in
   let sigma, lrecspec, _ =
     List.fold_right
-      (fun (_,dep,ind,sort) (evd, l, inst) ->
+      (fun (_,isrec,dep,ind,sort) (evd, l, inst) ->
        let evd, indu, inst =
 	 match inst with
 	 | None ->
@@ -390,10 +390,15 @@ let do_mutual_induction_scheme ?(force_mutual=false) lnamedepindsort =
 	      evd, (ind,u), Some u
 	 | Some ui -> evd, (ind, ui), inst
        in
-          (evd, (indu,dep,sort) :: l, inst))
-    lnamedepindsort (Evd.from_env env0,[],None)
+          (evd, (indu,isrec,dep,sort) :: l, inst))
+      lnamedepindsort (Evd.from_env env0,[],None)
   in
-  let sigma, listdecl = Indrec.build_mutual_induction_scheme env0 sigma ~force_mutual lrecspec in
+  let lnamedepindsort = (List.map (fun (x,_,y,z,a) -> (x,y,z,a)) lnamedepindsort) in
+  let sigma, listdecl = (match lrecspec with (indu,isrec,dep,sort) :: _ ->
+                           if isrec
+                           then Indrec.build_mutual_induction_scheme env0 sigma ~force_mutual (List.map (fun (x,_,y,z) -> (x,y,z)) lrecspec)
+                           else let evm, t = Indrec.build_case_analysis_scheme env0 sigma indu dep sort in
+                                evm, [t]) in
   let poly =
     (* NB: build_mutual_induction_scheme forces nonempty list of mutual inductives
        (force_mutual is about the generated schemes) *)
